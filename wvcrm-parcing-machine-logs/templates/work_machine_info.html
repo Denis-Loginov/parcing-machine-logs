@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Статистика работы станка</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 8px;
+            text-align: center;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        th, td {
+            width: 100px; /* Adjust this value to set the width of each column */
+        }
+        h1 {
+            text-align: center;
+        }
+    </style>
+    <script>
+        function secondsToHMS(seconds) {
+            if (seconds === null || seconds === '') return '';
+            seconds = Number(seconds);
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function calculateDuration(start, end) {
+            if (start && end) {
+                const startDate = new Date(start);
+                const endDate = new Date(end);
+                const duration = (endDate - startDate) / 1000; // duration in seconds
+                return secondsToHMS(duration);
+            }
+            return '';
+        }
+
+        function translateStatus(status) {
+            const statusDictionary = {
+                'work': 'Работа',
+                'settings': 'Настройка',
+                'downtime': 'Простой'
+            };
+            return statusDictionary[status] || status;
+        }
+
+        function formatTimes() {
+            const rows = document.querySelectorAll('tbody tr');
+            rows.forEach(row => {
+                const dateStartCell = row.querySelector('.date-start-cell');
+                const dateEndCell = row.querySelector('.date-end-cell');
+                const durationCell = row.querySelector('.duration-cell');
+
+                const dateStart = dateStartCell.textContent.trim();
+                const dateEnd = dateEndCell.textContent.trim();
+
+                if (dateStart && dateEnd) {
+                    const duration = calculateDuration(dateStart, dateEnd);
+                    durationCell.textContent = duration;
+                }
+
+                const timeCells = row.querySelectorAll('.time-cell');
+                timeCells.forEach(cell => {
+                    const seconds = cell.textContent.trim();
+                    if (seconds) {
+                        cell.textContent = secondsToHMS(seconds);
+                    }
+                });
+
+                // Translate status
+                const statusCell = row.querySelector('.status-cell');
+                const statusText = statusCell.textContent.trim();
+                statusCell.textContent = translateStatus(statusText);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', formatTimes);
+    </script>
+</head>
+<body>
+    <h1>Статистика работы станка</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Prod ID</th>
+                <th>Тип станка</th>
+                <th>ID станка</th>
+                <th>Оператор</th>
+                <th>Время старта</th>
+                <th>Время окончания</th>
+                <th>Период</th>
+                <th>Время работы лазера</th>
+                <th>Время холостых перемещений</th>
+                <th>Время холостых остановок</th>
+                <th>Полное время указанное при старте</th>
+                <th>Итоговое время при финише</th>
+                <th>Время пауз с пульта</th>
+                <th>Статус</th>
+                <th>Источник</th>
+                <th>Строка</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs %}
+            <tr>
+                <td>{{ log.task_id }}</td>
+                <td>{{ log.type_machine }}</td>
+                <td>{{ log.laser_park.laser_machine.name }} {{ log.laser_park.laser_power.name }}</td>
+                <td>{{ log.user.FIO }}</td>
+                <td class="date-start-cell">{{ log.date_start }}</td>
+                <td class="date-end-cell">{{ log.date_end if log.date_end else '' }}</td>
+                <td class="duration-cell"></td>
+                <td class="time-cell">{{ log.processing_time if log.processing_time else '' }}</td>
+                <td class="time-cell">{{ log.move_time if log.move_time else '' }}</td>
+                <td class="time-cell">{{ log.delay_time if log.delay_time else '' }}</td>
+                <td class="time-cell">{{ log.total_time_start if log.total_time_start else '' }}</td>
+                <td class="time-cell">{{ log.total_time_end if log.total_time_end else '' }}</td>
+                <td class="time-cell">{{ log.pause_time if log.pause_time else '' }}</td>
+                <td class="status-cell">{{ log.status }}</td>
+                <td>{{ log.source_file }}</td>
+                <td>{{ log.source_line }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
