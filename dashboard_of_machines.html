@@ -1,0 +1,1925 @@
+﻿﻿{% extends 'base.html' %}
+{% block title %} Мониторинг работы станков {% endblock %}
+{% block head %}
+    <link rel="stylesheet" href="/static/css/fancybox.css" />
+    <script src="/static/js/fancybox.js"></script>
+    <script src="/static/js/laser_task_conf.js?v={{ file_hash('/static/js/laser_task_conf.js') }}"></script>
+
+
+    <style>
+        main.full-width {
+            width: 100%;
+            margin-top: 50px;
+            padding: 0 15px; 
+        }
+
+        .border-rounded {
+            border: 2px solid #0b5a97;
+            border-radius: 8px;
+            padding: 5px;
+        }
+
+        .table td:nth-child(6) {
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+            word-break: break-all;
+            white-space: normal;
+        }
+
+        .chart-row {
+            display: flex;
+            justify-content: space-around; /* Распределяем пространство между графиками */
+            margin-bottom: 20px; /* Отступ между рядами графиков */
+        }
+
+        .chart-container {
+            flex: 1; /* Каждый график занимает равное пространство */
+            margin: 0 10px; /* Отступы между графиками */
+
+        }
+
+        #overallChartContainer {
+            margin: 0 auto; /* Центрирование контейнера */
+        }
+
+        canvas {
+            max-width: 100%; /* Максимальная ширина 100% */
+            height: auto;
+            /* max-height: 600px; */
+        }
+
+        canvas.pie-chart {
+            max-height: 300px; /* Устанавливаем максимальную высоту для круговых диаграмм */
+        }
+
+        .chart-summary-wrapper {
+            display: flex;
+            align-items: flex-start; /* Выравниваем по верхнему краю */
+            gap: 20px; /* Отступ между графиком и итогами */
+        }
+
+        #weeklyTypeDowntimeChart {
+            width: 100% !important;  /* Переопределение инлайн-стиля */
+            height: auto !important;
+            max-width: 70%;  /* Или любое другое ограничение */
+        }
+
+        #weeklyMachineDowntimeChart {
+            width: 100% !important;  /* Переопределение инлайн-стиля */
+            height: auto !important;
+            max-width: 70%;  /* Или любое другое ограничение */
+        }
+
+        .summary-container {
+            flex: 1; /* Итоги займут оставшееся пространство */
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 300px; /* Ограничиваем высоту */
+            overflow-y: auto;  /* Добавляем прокрутку */
+        }
+
+        .summary-container-column {
+            width: 150px; /* Устанавливаем ширину для первого столбца */
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    </style>
+
+{% endblock %}
+{% block body %}
+    <main role="main" class="full-width">
+        <div class="row">
+            <div class="col-3" style="display: flex; align-items: center; justify-content: flex-end; margin-bottom: 10px;">
+                <input type="date" id="dateInput">
+            </div>
+            
+            <div class="col-6" style="display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
+                <h1>Мониторинг работы станков</h1>
+            </div>
+            
+            <div class="col-3" style="display: flex; align-items: center; justify-content: flex-end; margin-bottom: 10px;">
+                <!-- <div style="margin-left: 15px; width: auto;">Время:</div> -->
+                <!-- <div id="current-time" style="margin-left: 10px;"></div> -->
+                <button id="settingsButton" class="btn btn-primary" style="margin-left: 15px; width: auto; padding: 5px 15px; white-space: nowrap;">
+                    <i class="fas fa-cog" style="font-size: 16px; margin-right: 8px;"></i> Время простоев
+                </button>
+                <button id="addNewTypeDowntime" class="btn btn-success" style="margin-left: 15px; width: auto; padding: 5px 15px; white-space: nowrap;" data-toggle="modal" data-target="#addTypeDowntimeModal">
+                    <i class="fas fa-cog" style="font-size: 16px; margin-right: 8px;"></i> Типы простоев
+                </button>
+            </div>
+        </div>
+
+        <!-- Модальное окно для добавления нового типа простоя или удалени неактуальных-->
+        <div class="modal fade col-12" id="addTypeDowntimeModal" tabindex="-1" role="dialog" aria-labelledby="addTypeDowntimeModalLabel" aria-hidden="true">
+            <div class="modal-dialog" style="max-width: 50%; width: auto;" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title text-center" id="addTypeDowntimeModalLabel">Редактор типов простоев</h5>
+                        <button type="button" class="btn btn-outline-danger" id="closeButton" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="col-12 col-lg-12 mx-12 my-12">
+        
+                                <label for="downtime_type_select" class="mb-1">Добавить новый тип простоя</label>
+                                <div class="row align-items-center">
+                                    <div class="form-group d-flex col-4"> 
+                                        <select id="downtime_type_select" class="form-control">
+                                            <option selected>Выберите тип станка</option>
+                                            <option value="Laser">Лазер</option>
+                                            <option value="Bend">Гибка</option>
+                                            <option value="Turner">Токарка</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group d-flex col-6">
+                                        <input type="text" id="new_type_dt" class="form-control" placeholder="Укажите наименование нового типа простоя">
+                                    </div>
+                                    <div class="col-2">
+                                        <button id="saveNewTypeDowntime" class="btn btn-outline-success w-100">Сохранить</button>
+                                    </div>
+                                </div>
+        
+                                <label for="machine_type_select" class="mb-1 mt-3">Удалить неактуальный тип простоя</label>
+                                <div class="row align-items-center">
+                                    <div class="form-group d-flex col-4">
+                                        <select id="machine_type_select" class="form-control">
+                                        </select>
+                                    </div>
+                                    <div class="form-group d-flex col-6">
+                                        <select id="machine_downtime_type_select" class="form-control">
+                                        </select>
+                                    </div>
+                                    <div class="col-2">
+                                        <button id="delTypeDowntime" class="btn btn-outline-danger w-100">Удалить</button>
+                                    </div>
+                                </div>
+        
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row" id="new">
+            {% set machines = [
+                ('Лазерные станки', laser),
+                ('Гибочные станки', bend),
+            ] %}
+            
+            {% for machine_name, machine_data in machines %}
+            <div class="col-md-4">
+                <div class="card mb-2 border-rounded">
+                    <div class="card-header">
+                        <h5 class="mb-1 text-center" style="font-weight: bold;">{{ machine_name }}</h5>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="list-group">
+                            {% for name, data in machine_data.items() %}
+                                {% set tasks = data.data[0] %}
+                                {% set total_work_time = data.work_time_today %}
+                                {% set total_downtime = data.downtime_today if data.downtime_today else 0 %}
+                                {% set downtime_data = data.downtime_data %}
+                                {% set downtime_approved = data.downtime_approved %}
+                                {% set task_end = tasks[0].de %}
+                                {% set task_description = tasks[0].description %}
+                                {% set work_time_today_dict = data.work_time_today_dict %}
+
+                                {% set delay = work_time - total_work_time %}
+                                {% set progress = "{:.0%}".format(total_work_time / work_time) %}
+                            
+                                {% if task_end != '' %}
+                                    {% set task_status = "Простой" %}
+                                {% else %}
+                                    {% if task_description == '-setting' %}
+                                        {% set task_status = "Настройка станка" %}
+                                    {% elif task_description == '-sheet_loading' %}
+                                        {% set task_status = "Погрузка листа" %}
+                                    {% else %}
+                                        {% set task_status = "В работе" %}
+                                    {% endif %}
+                                {% endif %}
+
+                                <div class="list-item mb-2 border-rounded">
+            
+                                    <div class="list-group-item mb-2 border-rounded
+                                        {% if task_status == 'Простой' %} bg-danger text-white
+                                        {% elif task_status == 'В работе' %} bg-success text-white
+                                        {% else %} bg-warning text-dark
+                                        {% endif %}"
+                                        data-current-time="{{ current_time }}"
+                                        data-stamp-s="{{ tasks[0].stamp_s }}">
+                                        <h5 class="mb-1 text-center">{{ name }}</h5>
+                                        <div class="row" style="display: flex; justify-content: space-between; align-items: center;">
+                                            {% for user_fio, user_work_time in work_time_today_dict.items() %}
+                                                <div class="row" style="display: flex; justify-content: space-between; align-items: center;">
+                                                    <p class="mb-1" style="margin: 0; flex: 1; text-align: right;">{{ user_fio }}</p>
+                                                    <div id="total-worktime-{{ loop.index }}" class="total-worktime" style="margin-left: 10px; flex: 1; text-align: left;" data-total-work-time="{{ user_work_time }}">{{ user_work_time }}</div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+
+                                    <div class="list-group-item-anal mb-2 border-rounded
+                                        {% if delay > settings_downtime[1]*60 %} bg-danger text-white
+                                        {% elif delay > settings_downtime[0]*60 %} bg-warning text-dark
+                                        {% else %} bg-success text-white
+                                        {% endif %}"
+                                        data-current-time="{{ current_time }}"
+                                        data-stamp-s="{{ tasks[0].stamp_s }}">
+                                        <div class="row" style="display: flex; justify-content: space-between; align-items: center;">
+                                            <p class="mb-1" style="margin: 0; flex: 1; text-align: right;">Успеваемость</p>
+                                            <div class="progress-downtime" style="margin-left: 10px; flex: 1; text-align: left;">
+                                                <div class="progress">
+                                                    <div class="progress-bar bg-secondary" role="progressbar" 
+                                                        style="width: {{ progress }};"
+                                                        aria-valuenow="{{ progress }}" 
+                                                        aria-valuemin="0" 
+                                                        aria-valuemax="100">{{ progress }}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="list-group-item-downtime mb-2 border-rounded
+                                        {% if total_downtime > settings_downtime[1]*60 %} bg-danger text-white
+                                        {% elif total_downtime > settings_downtime[0]*60 %} bg-warning text-dark
+                                        {% else %} bg-success text-white
+                                        {% endif %}"
+                                        data-current-time="{{ current_time }}"
+                                        data-stamp-s="{{ tasks[0].stamp_s }}">
+                                        <div class="row" style="display: flex; justify-content: space-between; align-items: center;">
+                                            {% if downtime_approved %}
+                                                <button class="btn btn-success view-button" style="margin-left: 15px; width: 30px; height: 30px; padding: 0;" onclick="toggleDowntimeApprovedDetails(this)">
+                                                    <i class="fas fa-check"></i>
+                                                </button>
+                                            {% endif %}
+                                            <p class="mb-1" style="margin: 0; flex: 1; text-align: right;">Простой суммарно</p>
+                                            <div class="total-downtime" style="margin-left: 15px; flex: 1; text-align: center;" data-total-down-time="{{ total_downtime }}"></div>
+                                            {% if downtime_data %}
+                                                <button class="btn btn-primary view-button" style="margin-right: 15px; width: 30px; height: 30px; padding: 0;" onclick="toggleDowntimeDetails(this)">
+                                                    <i class="fas fa-eye"></i>
+                                                </button>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+
+                                    <div class="modal fade" id="downtimeModal" tabindex="-1" aria-labelledby="downtimeModalLabel" aria-hidden="true">
+                                        <div class="modal-dialog modal-lg">
+                                            <div class="modal-content">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title" id="downtimeModalLabel">Информация о простоях станка</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                </div>
+                                                <div class="modal-body" id="modalBodyContent">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="downtime-descriptions mt-3" style="display: none;">
+                                        {% if downtime_data %}
+                                        <div style="max-width: 100%; overflow-x: auto;">
+                                            <table class="table table-striped">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Task ID</th>
+                                                        <th>Отв</th>
+                                                        <th>C</th>
+                                                        <th>По</th>
+                                                        <th>Тип</th>
+                                                        <th>Описание</th>
+                                                        <th>Время</th>
+                                                        <th>
+                                                            <input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAll(this, 'downtime-descriptions')">
+                                                        </th>
+                                                        <th>Причина</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for downtime in downtime_data %}
+                                                    <tr>
+                                                        <td>{{ downtime.task_id }}</td>
+                                                        <td>{{ downtime.user_fio }}</td>
+                                                        <td>{{ downtime.ds }}</td>
+                                                        <td>{{ downtime.de }}</td>
+                                                        <td>{{ downtime.type_id }}</td>
+                                                        <td>{{ downtime.description }}</td>
+                                                        <td class="party-downtime" id="party-downtime-{{ downtime.downtime_id }}" style="margin-left: 15px; flex: 1; text-align: center;" data-party-down-time="{{ downtime.downtime_party }}"></td>
+                                                        <td><input type="checkbox" name="agree" data-downtime-id="{{ downtime.downtime_id }}"></td>
+                                                        <td><input type="text" name="reason" data-downtime-id="{{ downtime.downtime_id }}" size="20"></td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <button class="btn btn-primary" style="float: right;" onclick="submitApproval('approved', 'downtime-descriptions')">Согласовать</button>
+                                        {% endif %}
+                                    </div>
+
+                                    <div class="modal fade" id="approvedDowntimeModal" tabindex="-1" aria-labelledby="approvedDowntimeModalLabel" aria-hidden="true">
+                                        <div class="modal-dialog modal-lg">
+                                            <div class="modal-content">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title" id="approvedDowntimeModalLabel">Информация по согласованным простоям станка</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                </div>
+                                                <div class="modal-body" id="modalBodyApprovedContent">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="downtime-approved-descriptions mt-3" style="display: none;">
+                                        {% if downtime_approved %}
+                                        <div style="max-width: 100%; overflow-x: auto;">
+                                            <table class="table table-striped">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Task ID</th>
+                                                        <th>Отв</th>
+                                                        <th>C</th>
+                                                        <th>По</th>
+                                                        <th>Тип</th>
+                                                        <th>Описание</th>
+                                                        <th>Время</th>
+                                                        <th>Причина</th>
+                                                        <th><input type="checkbox" id="selectAllCheckboxApproved" onclick="toggleApprovedSelectAll(this, 'downtime-approved-descriptions')"></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for downtime in downtime_approved %}
+                                                    <tr>
+                                                        <td>{{ downtime.task_id }}</td>
+                                                        <td>{{ downtime.user_fio }}</td>
+                                                        <td>{{ downtime.ds }}</td>
+                                                        <td>{{ downtime.de }}</td>
+                                                        <td>{{ downtime.type_id }}</td>
+                                                        <td>{{ downtime.description }}</td>
+                                                        <td class="party-downtime" id="party-downtime-{{ downtime.downtime_id }}" style="margin-left: 15px; flex: 1; text-align: center;" data-party-down-time="{{ downtime.downtime_party }}"></td>
+                                                        <td>{{ downtime.reason }}</td>
+                                                        <td><input type="checkbox" name="agree" data-downtime-id="{{ downtime.downtime_id }}"></td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <button class="btn btn-primary" style="float: right;" onclick="submitDisapproval('unforgiven', 'downtime-approved-descriptions')">Вернуть</button>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+
+            <div class="col-md-4">
+                <div class="card mb-2 border-rounded">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            Покраска
+                        </div>
+                        <div class="card-body p-2">
+                            <div class="list-group">
+                                {% set count_paint = count_paint %}
+                                {% if count_paint != 0 %}
+                                    {% for paint_name, tasks in paint_data.items() %}
+                                        {% set task_end = tasks[0].de %}
+                                        {% set task_status = "В работе" %}
+                                        <div class="list-group-item bg-success text-white" data-current-time="{{ current_time }}" data-stamp-e="{{ tasks[0].stamp_e }}">
+                                            <h5 class="mb-1">Статус: {{ task_status }}</h5>
+                                            <p class="mb-1">Завершенных за сегодня партий: {{ count_paint }}</p>
+                                            <p class="mb-1">Последнее завершено в {{ tasks[0].de.split(' ')[1] }}</p>
+                                            <div style="display: flex; align-items: center;">
+                                                <div class="difference" style="margin-left: 10px;"></div>
+                                                <div>. назад</div>
+                                            </div>
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    {% set task_status = "Простой" %}
+                                    <div class="list-group-item bg-danger text-white" data-current-time="{{ current_time }}" data-stamp-e="{{ timestamp_0800_today }}">
+                                        <h5 class="mb-1">Нет завершенных заданий</h5>
+                                        <div style="display: flex; align-items: center;">
+                                            <div>{{ task_status }}:</div>
+                                            <div class="difference" style="margin-left: 10px;"></div>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-3" style="display: flex; align-items: center; justify-content: flex-end; margin-bottom: 10px;">
+                <!-- Выбор месяца -->
+                <select id="monthInput" style="margin-right: 10px;">
+                    <option value="01">Январь</option>
+                    <option value="02">Февраль</option>
+                    <option value="03">Март</option>
+                    <option value="04">Апрель</option>
+                    <option value="05">Май</option>
+                    <option value="06">Июнь</option>
+                    <option value="07">Июль</option>
+                    <option value="08">Август</option>
+                    <option value="09">Сентябрь</option>
+                    <option value="10">Октябрь</option>
+                    <option value="11">Ноябрь</option>
+                    <option value="12">Декабрь</option>
+                </select>
+        
+                <!-- Выбор года -->
+                <select id="yearInput">
+                    <script>
+                        // Генерация списка годов
+                        const currentYear = new Date().getFullYear();
+                        for (let year = currentYear; year >= 2024; year--) {
+                            document.write(`<option value="${year}">${year}</option>`);
+                        }
+                    </script>
+                </select>
+            </div>
+            
+            <div class="col-6" style="display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
+                <h1>Мониторинг простоев станков</h1>
+            </div>
+        </div>
+
+        <div id="charts">
+            <div class="row">
+                <h2 class="month-ratio-laser-header text-center">РАБОТЫ и ПРОСТОИ по РЕЗКЕ</h2>
+                <div class="chart-row">
+                    {% for user, stats in month_ratio_by_laser.items() %}
+                        {% set user_index = loop.index0 %}
+                        {% for machine, _ in stats.machines.items() %}
+                            <div class="chart-container">
+                                <div>
+                                    <h3 class="text-center">{{ user }}</h3>
+                                </div>
+                                <div>
+                                    <h3 class="text-center">{{ machine }}</h3>
+                                </div>
+                                <canvas id="monthlyUserAnalyticsLaser_{{ loop.index0 }}_{{ user_index }}" class="pie-chart" width="200" height="200"></canvas>
+                            </div>
+                        {% endfor %}
+                    {% endfor %}
+                </div>
+            </div>
+
+
+            <div class="row">
+                <h2 class="month-ratio-bend-header text-center">РАБОТЫ и ПРОСТОИ по ГИБКЕ</h2>
+                <div class="chart-row">
+                    {% for user, stats in month_ratio_by_bend.items() %}
+                        <div class="chart-container">
+                            <h3 class="text-center">{{ user }}</h3>
+                            <canvas id="monthlyUserAnalyticsBend_{{ loop.index }}" class="pie-chart" width="200" height="200"></canvas>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="row">
+                {% for type_machine, machines in downtime_analytics_by_machine.items() %}
+                    <h2 id="downtime_header_{{ type_machine }}" class="text-center"></h2>
+                    <div class="chart-row">
+                        <div class="chart-container">
+                            <h2 class="text-center">ВСЕ </h2>
+                            <canvas id="overallDowntimeChart_{{ type_machine }}" class="pie-chart" width="200" height="200"></canvas>
+                        </div>
+                        {% for machine_id, machine_info in machines.items() %}
+                            <div class="chart-container">
+                                <h3 class="text-center">{{ machine_info.name }}</h3>
+                                <canvas id="downtimeChart_{{ type_machine }}_{{ machine_id }}" class="pie-chart" width="200" height="200"></canvas>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+            
+            <div class="row">
+                <h2 class="weekly-ratio-laser-machine-header text-center"></h2>
+                <div class="chart-summary-wrapper">
+                    <canvas id="weeklyMachineDowntimeChart"></canvas>
+                    <div id="summaryWeeklyMachineDowntimeContainer" class="summary-container"></div>
+                </div>
+            </div>
+
+            <div class="row">
+                <h2 class="weekly-ratio-laser-downtime-header text-center"></h2>
+                <div class="chart-summary-wrapper">
+                    <canvas id="weeklyTypeDowntimeChart"></canvas>
+                    <div id="summaryWeeklyTypeDowntimeContainer" class="summary-container"></div>
+                </div>
+            </div>
+           
+        </div>
+    </main>
+
+    <script>
+
+        // Зона отрисовки диаграмм...........................................................................
+        // Зона отрисовки диаграмм...........................................................................
+        // Зона отрисовки диаграмм...........................................................................
+
+        document.addEventListener('DOMContentLoaded', function () {
+            current_month_name = {{ current_month.month_name | tojson }};
+            current_month_number = {{ current_month.month_number | tojson }};
+            current_year = {{ current_month.current_year | tojson }};
+            weeklyDowntimeByMachine({{ weekly_downtime_by_machine | tojson }})
+            weeklyDowntimeByType({{ weekly_downtime_by_type | tojson }})
+            drawMaschineAnalytics({{ downtime_analytics_by_machine | tojson }})
+            drawMonthlyUserAnalyticsLaser({{ month_ratio_by_laser | tojson }}, 'monthlyUserAnalyticsLaser');
+            drawMonthlyUserAnalyticsBend({{ month_ratio_by_bend | tojson }}, 'monthlyUserAnalyticsBend');
+            document.getElementById('monthInput').value = current_month_number;
+            document.getElementById('yearInput').value = current_year;
+            // Привязываем обработчик к изменениям в полях выбора
+            document.getElementById('monthInput').addEventListener('change', handleMonthYearChange);
+            document.getElementById('yearInput').addEventListener('change', handleMonthYearChange);
+        });
+
+        // Функция форматирования времени из мин в _ч _мин
+        function formatTime(minutes) {
+            const hours = Math.floor(minutes / 60);
+            const remainingMinutes = Math.round(minutes % 60);
+            if (hours > 0 && remainingMinutes > 0) {
+                return `${hours} ч ${remainingMinutes} мин`;
+            } else if (hours > 0) {
+                return `${hours} ч`;
+            } else if (remainingMinutes > 0) {
+                return `${remainingMinutes} мин`;
+            } else {
+                return '';
+            }
+        }
+        
+        function drawMonthlyUserAnalyticsBend(data, chartType) {
+            Object.keys(data).forEach((user, index) => {
+                const stats = JSON.parse(JSON.stringify(data[user]));
+                
+                // Преобразуем данные для диаграммы
+                const labels = ['Работа', 'Настройка', 'Простой', 'Остаток'];
+                const values = [stats.work, stats.setting, stats.downtime, stats.all];
+                
+                // Уникальный ID для каждой диаграммы
+                const chartContainerId = `${chartType}_${index + 1}`;
+                const canvas = document.getElementById(chartContainerId);
+
+                const ctx = canvas.getContext('2d');
+
+                // Создание массивов для цветов
+                const backgroundColors = [
+                    'rgba(76, 175, 80, 0.5)',  // Работа - зеленый
+                    'rgba(255, 152, 0, 0.5)',  // Настройка - оранжевый
+                    'rgba(244, 67, 54, 0.5)',   // Простой - красный
+                    'rgba(158, 158, 158, 0.5)'  // Остаток - серый
+                ];
+                const borderColors = [
+                    'rgba(76, 175, 80, 1)',     // Работа - зеленый
+                    'rgba(255, 152, 0, 1)',     // Настройка - оранжевый
+                    'rgba(244, 67, 54, 1)',      // Простой - красный
+                    'rgba(158, 158, 158, 1)'     // Остаток - серый
+                ];
+
+                // Создание нового графика
+                const chart = new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: `Аналитика по месяцам`,
+                            data: values,
+                            backgroundColor: backgroundColors,
+                            borderColor: borderColors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(tooltipItem) {
+                                        const minutes = tooltipItem.raw;
+                                        return formatTime(minutes);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // Сохранение ссылки на созданный график
+                canvas.chartInstance = chart;
+
+                // Добавление итогов под диаграммой
+                const chartContainer = canvas.closest('.chart-container');
+                const totalsTableContainer = document.createElement('div');
+                totalsTableContainer.className = 'totals-table-container';
+
+                // Применяем стили для центрирования таблицы
+                totalsTableContainer.style.display = 'flex'; 
+                totalsTableContainer.style.justifyContent = 'center'; // Центрирование по горизонтали
+
+                const table = document.createElement('table');
+                table.className = 'totals-table';
+                table.style.margin = '0 auto'; // Центрирование таблицы
+
+                // Заголовок таблицы
+                const header = table.createTHead();
+                const headerRow = header.insertRow(0);
+                const headerCell1 = document.createElement('th');
+                headerCell1.textContent = 'Категория';
+                const headerCell2 = document.createElement('th');
+                headerCell2.textContent = 'Время';
+                headerRow.appendChild(headerCell1);
+                headerRow.appendChild(headerCell2);
+
+                // Тело таблицы
+                const body = table.createTBody();
+
+                // Добавляем строки для итогов по каждой категории
+                const rows = [
+                    { label: 'Работа', value: formatTime(stats.work) },
+                    { label: 'Настройка', value: formatTime(stats.setting) },
+                    { label: 'Погрузка', value: formatTime(stats.sheet_loading) },
+                    { label: 'Простой', value: formatTime(stats.downtime) },
+                    { label: 'Остаток', value: formatTime(stats.all) }
+                ];
+
+                rows.forEach(row => {
+                    const tr = body.insertRow();
+                    const td1 = tr.insertCell(0);
+                    const td2 = tr.insertCell(1);
+
+                    // Применяем классы для стилей
+                    td1.style.width = '40%';
+                    td1.style.paddingRight = '20px';
+                    td1.textContent = row.label;
+                    td2.textContent = row.value;
+                });
+
+                // Добавляем таблицу в контейнер
+                totalsTableContainer.appendChild(table);
+                chartContainer.appendChild(totalsTableContainer);
+            });
+
+            // Находим заголовок и обновляем его содержимое
+            const header_bend = document.querySelector('.month-ratio-bend-header.text-center');
+            if (header_bend) {
+                header_bend.innerHTML = `РАБОТЫ и ПРОСТОИ по ГИБКЕ за ${current_month_name}`;
+            }
+        }
+
+        function drawMonthlyUserAnalyticsLaser(data, chartType) {
+            // Проходим по каждому оператору
+            Object.keys(data).forEach((user, userIndex) => {
+                const userStats = data[user];
+
+                // Проходим по каждому станку для текущего оператора
+                Object.keys(userStats.machines).forEach((machineName, machineIndex) => {
+                    const stats = userStats.machines[machineName];
+
+                    // Преобразуем данные для диаграммы
+                    const labels = ['Работа', 'Настройка', 'Погрузка', 'Простой', 'Остаток'];
+                    const values = [stats.work, stats.setting, stats.sheet_loading, stats.downtime, stats.all];
+
+                    // Уникальный ID для каждой диаграммы
+                    const chartContainerId = `${chartType}_${machineIndex}_${userIndex}`;
+                    const canvas = document.getElementById(chartContainerId);
+
+                    if (!canvas) {
+                        console.warn(`Canvas с ID ${chartContainerId} не найден.`);
+                        return;
+                    }
+
+                    const ctx = canvas.getContext('2d');
+
+                    // Создание массивов для цветов
+                    const backgroundColors = [
+                        'rgba(76, 175, 80, 0.5)',  // Работа - зеленый
+                        'rgba(255, 152, 0, 0.5)',  // Настройка - оранжевый
+                        'rgba(33, 150, 243, 0.5)',  // Погрузка - синий
+                        'rgba(244, 67, 54, 0.5)',   // Простой - красный
+                        'rgba(158, 158, 158, 0.5)'  // Остаток - серый
+                    ];
+                    const borderColors = [
+                        'rgba(76, 175, 80, 1)',     // Работа - зеленый
+                        'rgba(255, 152, 0, 1)',     // Настройка - оранжевый
+                        'rgba(33, 150, 243, 1)',     // Погрузка - синий
+                        'rgba(244, 67, 54, 1)',      // Простой - красный
+                        'rgba(158, 158, 158, 1)'     // Остаток - серый
+                    ];
+
+                    // Создание нового графика
+                    const chart = new Chart(ctx, {
+                        type: 'pie',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: `Аналитика для ${machineName} от ${user}`,
+                                data: values,
+                                backgroundColor: backgroundColors,
+                                borderColor: borderColors,
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                legend: {
+                                    position: 'top',
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(tooltipItem) {
+                                            const minutes = tooltipItem.raw;
+                                            return formatTime(minutes);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    canvas.chartInstance = chart;
+
+                    // Добавление итогов под диаграммой
+                    const chartContainer = canvas.closest('.chart-container');
+                    const totalsTableContainer = document.createElement('div');
+                    totalsTableContainer.className = 'totals-table-container';
+
+                    // Применяем стили для центрирования таблицы
+                    totalsTableContainer.style.display = 'flex'; 
+                    totalsTableContainer.style.justifyContent = 'center'; // Центрирование по горизонтали
+
+                    const table = document.createElement('table');
+                    table.className = 'totals-table';
+                    table.style.margin = '0 auto'; // Центрирование таблицы
+
+                    const header = table.createTHead();
+                    const headerRow = header.insertRow(0);
+                    const headerCell1 = document.createElement('th');
+                    headerCell1.textContent = 'Категория';
+                    const headerCell2 = document.createElement('th');
+                    headerCell2.textContent = 'Время';
+                    headerRow.appendChild(headerCell1);
+                    headerRow.appendChild(headerCell2);
+
+                    const body = table.createTBody();
+                    const rows = [
+                        { label: 'Работа общ', value: formatTime(stats.all_work) },
+                        { label: 'Работа', value: formatTime(stats.work) },
+                        { label: 'Настройка', value: formatTime(stats.setting) },
+                        { label: 'Погрузка', value: formatTime(stats.sheet_loading) },
+                        { label: 'Простой', value: formatTime(stats.downtime) },
+                        { label: 'Остаток', value: formatTime(stats.all) }
+                    ];
+
+                    rows.forEach(row => {
+                        const tr = body.insertRow();
+                        const td1 = tr.insertCell(0);
+                        const td2 = tr.insertCell(1);
+
+                        // Применяем классы для стилей
+                        td1.style.width = '40%';
+                        td1.style.paddingRight = '20px';
+                        td1.textContent = row.label;
+                        td2.textContent = row.value;
+                    });
+
+                    // Добавляем таблицу в контейнер
+                    totalsTableContainer.appendChild(table);
+                    chartContainer.appendChild(totalsTableContainer);
+                });
+            });
+
+            // Обновление заголовков для Лазера и Гибки
+            const header_laser = document.querySelector('.month-ratio-laser-header.text-center');
+            if (header_laser) {
+                header_laser.innerHTML = `РАБОТЫ и ПРОСТОИ по РЕЗКЕ за ${current_month_name}`;
+            }
+        }
+
+        // Функция назначение цвета по наименованию станка/типа_простоя
+        function getColorByName(machineName) {
+            // Хешируем имя станка, чтобы получить постоянный цвет
+            let hash = 0;
+            for (let i = 0; i < machineName.length; i++) {
+                hash = machineName.charCodeAt(i) + ((hash << 5) - hash);
+            }
+
+            // Преобразуем хеш в цветовые компоненты
+            let r = (hash & 0xFF0000) >> 16; // Красный
+            let g = (hash & 0x00FF00) >> 8;  // Зеленый
+            let b = (hash & 0x0000FF);       // Синий
+
+            // Увеличиваем значения компонентов, чтобы получить пастельные цвета
+            r = Math.min(255, r + 10);
+            g = Math.min(255, g + 10);
+            b = Math.min(255, b + 10);
+
+            // Преобразуем компоненты в шестизначный цвет
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        // функция построения графика понедельной аналитики суммарных простоев по станкам
+        function weeklyDowntimeByMachine(data) {
+            const wMachineChartData = {
+                labels: [],
+                formattedLabels: [], // Недели в формате 19.08.24
+                datasets: [],
+                machineNames: [] // Новый массив для хранения наименований станков
+            };
+
+            const weeklySummariesByMachine = {}; // Создаем объект для хранения общего времени простоя по каждой неделе
+
+            for (const [week, machines] of Object.entries(data)) {
+                if (!wMachineChartData.labels.includes(week)) {
+                    wMachineChartData.labels.push(week);
+                    wMachineChartData.formattedLabels.push(week);
+                }
+
+                weeklySummariesByMachine[week] = {};
+
+                for (const [machine_name, minutes] of Object.entries(machines)) {
+                    const numericMinutes = parseFloat(minutes) || 0;
+
+                    let dataset = wMachineChartData.datasets.find(ds => ds.label === machine_name);
+
+                    if (!dataset) {
+                        dataset = {
+                            label: machine_name,
+                            data: Array(wMachineChartData.labels.length).fill(0),
+                            backgroundColor: getColorByName(machine_name),
+                            stack: 'Stack 0'
+                        };
+                        wMachineChartData.datasets.push(dataset);
+                        wMachineChartData.machineNames.push(machine_name); // Добавляем наименование станка в массив
+                    }
+
+                    const weekIndex = wMachineChartData.labels.indexOf(week);
+                    if (weekIndex >= 0) {
+                        dataset.data[weekIndex] = (dataset.data[weekIndex] || 0) + numericMinutes;
+
+                        if (!weeklySummariesByMachine[week][machine_name]) {
+                            weeklySummariesByMachine[week][machine_name] = 0;
+                        }
+                        weeklySummariesByMachine[week][machine_name] += numericMinutes;
+                    }
+                }
+            }
+
+            const ctxvdm = document.getElementById('weeklyMachineDowntimeChart').getContext('2d');
+
+            new Chart(ctxvdm, {
+                type: 'bar',
+                data: {
+                    labels: wMachineChartData.formattedLabels,
+                    datasets: wMachineChartData.datasets
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            stacked: true,
+                            title: {
+                                display: true,
+                                text: 'Недели'
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            title: {
+                                display: true,
+                                text: 'Время простоя (минуты)'
+                            }
+                        },
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    // Возвращаем название станка из массива
+                                    return wMachineChartData.machineNames[tooltipItems[0].datasetIndex]; // Получаем название станка
+                                },
+                                label: function(tooltipItem) {
+                                    const minutes = tooltipItem.raw;
+                                    return `Простой: ${formatTime(minutes)}`; // Форматируем время простоя
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Создаем список итогов к диаграмме
+            const summaryWeeklyMachineDowntimeContainer = document.getElementById('summaryWeeklyMachineDowntimeContainer');
+            summaryWeeklyMachineDowntimeContainer.className = 'downtime-summary';
+
+            for (const week of wMachineChartData.labels) {
+                const weekSummary = document.createElement('div');
+                weekSummary.className = 'week-summary';
+                weekSummary.style.marginBottom = '10px';
+                weekSummary.innerHTML = `<strong style="display: block; text-align: left; padding-left: 40px;">Неделя: ${week}</strong>`;
+
+                // Создаем таблицу
+                const table = document.createElement('table');
+                table.className = 'downtime-table';
+                // table.style.tableLayout = 'fixed';
+                table.style.width = '100%';
+
+                // Заголовок таблицы
+                const header = table.createTHead();
+                const headerRow = header.insertRow(0);
+                const headerCell1 = document.createElement('th');
+                headerCell1.textContent = 'Станок';
+                const headerCell2 = document.createElement('th');
+                headerCell2.textContent = 'Простой';
+                headerRow.appendChild(headerCell1);
+                headerRow.appendChild(headerCell2);
+
+                // Тело таблицы
+                const body = table.createTBody();
+
+                for (const [machine_name, minutes] of Object.entries(weeklySummariesByMachine[week])) {
+                    const row = body.insertRow();
+                    const machineCell = row.insertCell(0);
+                    const timeCell = row.insertCell(1);
+                    machineCell.className = 'summary-container-column';
+                    timeCell.className = 'summary-container-column';
+
+                    const timeFormatted = formatTime(minutes);
+                    machineCell.textContent = machine_name;
+                    timeCell.textContent = timeFormatted;
+                    machineCell.style.paddingRight = '20px';
+                }
+
+                weekSummary.appendChild(table);
+                summaryWeeklyMachineDowntimeContainer.appendChild(weekSummary);
+            }
+            
+            // Находим заголовок для Лазера и обновляем его содержимое
+            const header_laser = document.querySelector('.weekly-ratio-laser-machine-header.text-center'); 
+            if (header_laser) {
+                header_laser.innerHTML = `Простои ЛАЗЕРОВ понедельно за ${current_month_name}`;
+            }
+        }
+
+        // функция построения графика понедельной аналитики суммарных простоев по типам простоев
+        function weeklyDowntimeByType(data) {
+            const wTypeChartData = {
+                labels: [],
+                formattedLabels: [],
+                datasets: []
+            };
+
+            const weeklySummaries = {};
+
+            for (const [week, types] of Object.entries(data)) {
+                if (!wTypeChartData.labels.includes(week)) {
+                    wTypeChartData.labels.push(week);
+                    wTypeChartData.formattedLabels.push(week);
+                }
+
+                weeklySummaries[week] = {};
+
+                for (const [type_id, minutes] of Object.entries(types)) {
+                    const numericMinutes = parseFloat(minutes) || 0;
+
+                    let dataset = wTypeChartData.datasets.find(ds => ds.label === type_id);
+
+                    if (!dataset) {
+                        dataset = {
+                            label: type_id,
+                            data: Array(wTypeChartData.labels.length).fill(0),
+                            backgroundColor: getColorByName(type_id),
+                            stack: 'Stack 0'
+                        };
+                        wTypeChartData.datasets.push(dataset);
+                    }
+
+                    const weekIndex = wTypeChartData.labels.indexOf(week);
+                    if (weekIndex >= 0) {
+                        dataset.data[weekIndex] = (dataset.data[weekIndex] || 0) + numericMinutes;
+
+                        if (!weeklySummaries[week][type_id]) {
+                            weeklySummaries[week][type_id] = 0;
+                        }
+                        weeklySummaries[week][type_id] += numericMinutes;
+                    }
+                }
+            }
+
+            const ctxvdt = document.getElementById('weeklyTypeDowntimeChart').getContext('2d');
+
+            new Chart(ctxvdt, {
+                type: 'bar',
+                data: {
+                    labels: wTypeChartData.formattedLabels,
+                    datasets: wTypeChartData.datasets
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            stacked: true,
+                            title: {
+                                display: true,
+                                text: 'Недели'
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            title: {
+                                display: true,
+                                text: 'Время простоя (минуты)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(tooltipItem) {
+                                    const datasetLabel = tooltipItem.dataset.label; // тип простоя
+                                    const minutes = tooltipItem.raw; // время простоя в минутах
+                                    const timeFormatted = formatTime(minutes); // форматируем
+                                    return `${datasetLabel}: ${timeFormatted}`; // возвращаем
+                                },
+                                title: function(tooltipItems) {
+                                    // Устанавливаем заголовок как тип простоя
+                                    const firstItem = tooltipItems[0];
+                                    return firstItem.dataset.label;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Создаем список итогов под диаграммой
+            const summaryWeeklyTypeDowntimeContainer = document.getElementById('summaryWeeklyTypeDowntimeContainer');
+            summaryWeeklyTypeDowntimeContainer.className = 'downtime-summary';
+
+            for (const week of wTypeChartData.labels) {
+                const weekSummary = document.createElement('div');
+                weekSummary.className = 'week-summary';
+                weekSummary.style.marginBottom = '10px';
+                weekSummary.innerHTML = `<strong style="display: block; text-align: left; padding-left: 40px;">Неделя: ${week}</strong>`;
+
+                // Создаем таблицу
+                const table = document.createElement('table');
+                table.className = 'downtime-table';
+                // table.style.tableLayout = 'fixed';
+                table.style.width = '100%';
+
+                // Заголовок таблицы
+                const header = table.createTHead();
+                const headerRow = header.insertRow(0);
+                const headerCell1 = document.createElement('th');
+                headerCell1.textContent = 'Тип';
+                const headerCell2 = document.createElement('th');
+                headerCell2.textContent = 'Простой';
+                headerRow.appendChild(headerCell1);
+                headerRow.appendChild(headerCell2);
+
+                // Тело таблицы
+                const body = table.createTBody();
+
+                for (const [type_id, minutes] of Object.entries(weeklySummaries[week])) {
+                    const row = body.insertRow();
+                    const typeCell = row.insertCell(0);
+                    const timeCell = row.insertCell(1);
+                    typeCell.className = 'summary-container-column';
+                    timeCell.className = 'summary-container-column';
+
+                    const timeFormatted = formatTime(minutes);
+                    typeCell.textContent = type_id;
+                    timeCell.textContent = timeFormatted;
+                    typeCell.style.paddingRight = '20px';
+                }
+
+                weekSummary.appendChild(table);
+                summaryWeeklyTypeDowntimeContainer.appendChild(weekSummary);
+            }
+            
+            // Находим заголовок для Лазера и обновляем его содержимое
+            const header_laser = document.querySelector('.weekly-ratio-laser-downtime-header.text-center'); 
+            if (header_laser) {
+                header_laser.innerHTML = `Простои ЛАЗЕРОВ по ТИПАМ понедельно за ${current_month_name}`;
+            }
+        }
+
+        // функция построения круговых диаграмм с долями типов простоев по станкам за месяц
+        function drawMaschineAnalytics(data) {
+            
+            // Отрисовка графиков для каждого типа машин
+            for (const [type_machine, machines] of Object.entries(data)) {
+                const overallData = {};
+
+                for (const [machine_id, machine_info] of Object.entries(machines)) {
+                    const sortedEntries = Object.entries(machine_info.data).sort((a, b) => b[1] - a[1]);
+                    
+                    const labels = sortedEntries.map(entry => entry[0]);
+                    const values = sortedEntries.map(entry => entry[1]);
+
+                    for (const [type_id, minutes] of sortedEntries) {
+                        const numericMinutes = parseFloat(minutes);
+
+                        if (!overallData[type_id]) {
+                            overallData[type_id] = 0;
+                        }
+                        overallData[type_id] += numericMinutes;
+                    }
+                    
+                    const chartContainerId = `downtimeChart_${type_machine}_${machine_id}`;
+                    const ctxdma = document.getElementById(chartContainerId).getContext('2d');
+
+                    // Создание массивов для цветов
+                    const backgroundColors = labels.map(label => getColorByName(label));
+                    const borderColors = backgroundColors.map(color => color.replace('0.2', '1'));
+
+                    new Chart(ctxdma, {
+                        type: 'pie',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'Время простоя (в минутах)',
+                                data: values,
+                                backgroundColor: backgroundColors,
+                                borderColor: borderColors,
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                legend: {
+                                    position: 'top',
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(tooltipItem) {
+                                            const minutes = tooltipItem.raw;
+                                            return formatTime(minutes);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    
+                    // Создаем таблицу для представления простоев
+                    const downtimeTableContainer = document.createElement('div');
+                    downtimeTableContainer.className = 'downtime-table-container';
+
+                    // Применяем стили для центрирования таблицы
+                    downtimeTableContainer.style.display = 'flex'; 
+                    downtimeTableContainer.style.justifyContent = 'center'; // Центрирование по горизонтали
+
+                    const table = document.createElement('table');
+                    table.className = 'downtime-table';
+
+                    table.style.margin = '0 auto'; // Центрирование таблицы
+
+                    // Заголовок таблицы
+                    const header = table.createTHead();
+                    const headerRow = header.insertRow(0);
+                    const headerCell1 = document.createElement('th');
+                    headerCell1.textContent = 'Тип простоя'; // Задаем текст заголовка
+                    const headerCell2 = document.createElement('th');
+                    headerCell2.textContent = 'Время'; // Задаем текст заголовка
+                    headerRow.appendChild(headerCell1);
+                    headerRow.appendChild(headerCell2);
+
+                    // Тело таблицы
+                    const body = table.createTBody();
+
+                    // Вычисляем общее время простоя
+                    const totalDowntime = values.reduce((acc, minutes) => acc + parseFloat(minutes), 0);
+                    const totalTimeFormatted = formatTime(totalDowntime);
+
+                    // Добавляем общее время в таблицу как отдельную строку
+                    const totalRow = body.insertRow();
+                    const totalCell1 = totalRow.insertCell(0);
+                    const totalCell2 = totalRow.insertCell(1);
+                    totalCell1.innerHTML = `<strong>Всего:</strong>`;
+                    totalCell2.innerHTML = `<strong>${totalTimeFormatted}</strong>`;
+
+                    // Добавляем строки для каждого типа простоя
+                    for (const [type_id, minutes] of sortedEntries) {
+                        const row = body.insertRow();
+                        const typeCell = row.insertCell(0);
+                        const timeCell = row.insertCell(1);
+                        const timeFormatted = formatTime(minutes);
+                    
+                        // Устанавливаем стиль для первой ячейки
+                        typeCell.style.paddingRight = '20px';
+                        typeCell.textContent = type_id;
+                        timeCell.textContent = timeFormatted;
+                    }
+
+                    // Добавляем таблицу в контейнер
+                    downtimeTableContainer.appendChild(table);
+
+                    // Находим контейнер для графика
+                    const chartContainer = document.getElementById(chartContainerId).closest('.chart-container');
+                    if (chartContainer) {
+                        chartContainer.appendChild(downtimeTableContainer);
+                    } else {
+                        console.error('Контейнер для графика не найден');
+                    }
+
+                }
+                
+                // Отрисовка общей аналитики по всем станкам
+                drawOverallAnalytics(overallData, type_machine);
+            }
+            
+            // Обновляем заголовок для лазеров
+            const laserHeader = document.getElementById('downtime_header_Laser');
+            if (laserHeader) {
+                laserHeader.innerHTML = `Простои ЛАЗЕРОВ за ${current_month_name}`;
+            }
+
+            // Обновляем заголовок для гибки
+            const bendHeader = document.getElementById('downtime_header_Bend');
+            if (bendHeader) {
+                bendHeader.innerHTML = `Простои ГИБКИ за ${current_month_name}`;
+            }
+        }
+
+        // Функция построения круговых диаграмм с долями типов простоев суммарно для всех лазерных станков
+        function drawOverallAnalytics(overallData, type_machine) {
+            const numericOverallData = {};
+            for (const [key, value] of Object.entries(overallData)) {
+                numericOverallData[key] = Number(value);
+            }
+
+            const sortedEntries = Object.entries(numericOverallData).sort((a, b) => b[1] - a[1]);
+            const overallLabels = sortedEntries.map(entry => entry[0]);
+            const overallValues = sortedEntries.map(entry => entry[1]);
+
+            // Изменяем ID на динамический
+            const overallChartContainerId = `overallDowntimeChart_${type_machine}`;
+            const ctxdoa = document.getElementById(overallChartContainerId).getContext('2d');
+
+            // Создание массивов для цветов
+            const overallBackgroundColors = overallLabels.map(label => getColorByName(label));
+            const overallBorderColors = overallBackgroundColors.map(color => color.replace('0.2', '1')); 
+
+            new Chart(ctxdoa, {
+                type: 'pie',
+                data: {
+                    labels: overallLabels,
+                    datasets: [{
+                        label: 'Общее время простоя (в минутах)',
+                        data: overallValues,
+                        backgroundColor: overallBackgroundColors,
+                        borderColor: overallBorderColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(tooltipItem) {
+                                    const minutes = tooltipItem.raw;
+                                    return formatTime(minutes);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Вычисляем и форматируем общее время простоя
+            const overallTotalTimeFormatted = formatTime(overallValues.reduce((acc, minutes) => acc + minutes, 0));
+
+            // Создаем контейнер для таблицы
+            const overallTableContainer = document.createElement('div');
+            overallTableContainer.className = 'overall-table-container';
+
+            // Применяем стили для центрирования таблицы
+            overallTableContainer.style.display = 'flex'; 
+            overallTableContainer.style.justifyContent = 'center'; // Центрирование по горизонтали
+
+            const table = document.createElement('table');
+            table.className = 'overall-table';
+            table.style.margin = '0 auto'; // Центрирование таблицы
+
+            // Заголовок таблицы
+            const header = table.createTHead();
+            const headerRow = header.insertRow(0);
+            const headerCell1 = document.createElement('th');
+            headerCell1.textContent = 'Тип';
+            const headerCell2 = document.createElement('th');
+            headerCell2.textContent = 'Время';
+            headerRow.appendChild(headerCell1);
+            headerRow.appendChild(headerCell2);
+
+            // Тело таблицы
+            const body = table.createTBody();
+
+            // Добавляем общее время в таблицу как отдельную строку
+            const totalRow = body.insertRow();
+            const totalCell1 = totalRow.insertCell(0);
+            const totalCell2 = totalRow.insertCell(1);
+            totalCell1.innerHTML = `<strong>Всего:</strong>`;
+            totalCell2.innerHTML = `<strong>${overallTotalTimeFormatted}</strong>`;
+
+            // Добавляем строки для каждого типа простоя
+            overallLabels.forEach((label, index) => {
+                const row = body.insertRow();
+                const typeCell = row.insertCell(0);
+                const timeCell = row.insertCell(1);
+                const timeFormatted = formatTime(overallValues[index]);
+                typeCell.style.paddingRight = '20px';
+                typeCell.textContent = label;
+                timeCell.textContent = timeFormatted;
+            });
+
+            // Добавляем таблицу в контейнер
+            overallTableContainer.appendChild(table);
+
+            // Находим контейнер для общего графика
+            const overallContainer = document.getElementById(overallChartContainerId).closest('.chart-container');
+            if (overallContainer) {
+                overallContainer.appendChild(overallTableContainer);
+            } else {
+                console.error('Контейнер для общего графика не найден');
+            }
+        }
+
+        // Обработчик изменения месяца и года
+        function handleMonthYearChange() {
+            const monthInput = document.getElementById('monthInput').value;
+            const yearInput = document.getElementById('yearInput').value;
+
+            $.ajax({
+                url: `/dashboard_of_machines_charts?year=${yearInput}&month=${monthInput}`,
+                method: 'GET',
+                success: function(data) {
+                    current_month_name = data.current_month.month_name
+                    // Обновляем HTML контент страницы
+                    $('#charts').html(data.html);
+                    weeklyDowntimeByMachine(data.weekly_downtime_by_machine);
+                    weeklyDowntimeByType(data.weekly_downtime_by_type);
+                    drawMaschineAnalytics(data.downtime_analytics_by_machine);
+                    drawMonthlyUserAnalyticsLaser(data.month_ratio_by_laser, 'monthlyUserAnalyticsLaser');
+                    drawMonthlyUserAnalyticsBend(data.month_ratio_by_bend, 'monthlyUserAnalyticsBend');
+                },
+                error: function(error) {
+                    console.error('Error fetching dashboard data:', error);
+                }
+            });
+        }
+
+        // Конец зоны отрисовки диаграмм...........................................................................
+        // Конец зоны отрисовки диаграмм...........................................................................
+        // Конец зоны отрисовки диаграмм...........................................................................
+
+
+        // Зона отрисовки дашборда работы станков..................................................................
+        // Зона отрисовки дашборда работы станков..................................................................
+        // Зона отрисовки дашборда работы станков..................................................................
+
+        // Слушатель и функция для открытия и заполнения модалки добавления и корректировки видов простое
+        $(document).ready(function() {
+            const machineNamesMap = {
+                'Laser': 'Лазер',
+                'Bend': 'Гибка',
+                'Turner': 'Токарка'
+            };
+
+            $('#addNewTypeDowntime').on('click', function() {
+                
+                $('#addTypeDowntimeModal').modal('show');
+                cl(1)
+
+                $.get('/get_machine_downtime_types', function(data) {
+                    cl(2)
+                    const machineTypeSelect = $('#machine_type_select');
+                    const machineDowntimeTypeSelect = $('#machine_downtime_type_select');
+
+                    machineTypeSelect.empty();
+                    machineDowntimeTypeSelect.empty();
+
+                    // Заполнение первого выпадающего списка ключами (наименования станков)
+                    $.each(data, function(machine, downtimes) {
+                        const displayName = machineNamesMap[machine] || machine;
+                        machineTypeSelect.append(new Option(displayName, machine));
+                    });
+
+                    // Обновление второго выпадающего списка в зависимости от выбранного станка
+                    machineTypeSelect.on('change', function() {
+                        const selectedMachine = $(this).val();
+                        machineDowntimeTypeSelect.empty();
+
+                        if (data[selectedMachine]) {
+                            $.each(data[selectedMachine], function(index, downtime) {
+                                machineDowntimeTypeSelect.append(new Option(downtime, downtime));
+                            });
+                        }
+                    });
+
+                    // Инициируем изменение для первоначального заполнения второго списка
+                    machineTypeSelect.trigger('change');
+                });
+            });
+        });
+
+        // обработчик модалки для сохранения новых типов простоя
+        document.getElementById('saveNewTypeDowntime').addEventListener('click', function() {
+            const new_type_dt = document.getElementById('new_type_dt').value;
+            const type_maсhine = document.getElementById('downtime_type_select').value;
+
+            fetch('/add_new_type_downtime', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ new_type_dt: new_type_dt, type_maсhine: type_maсhine })
+            })
+            .then(response => {
+                if (response.ok) {
+                    $('#addTypeDowntimeModal').modal('hide');
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Новый тип простоя сохранен',
+                        showConfirmButton: false,
+                        timer: 2000
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Ошибка при сохранении нового типа простоя',
+                        showConfirmButton: false,
+                        timer: 2000
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Ошибка при сохранении нового типа простоя',
+                    showConfirmButton: false,
+                    timer: 2000
+                });
+            });
+        }); 
+
+        // обработчик модалки для перевода в неактуальные типов простоя
+        document.getElementById('delTypeDowntime').addEventListener('click', function() {
+            const machineType = document.getElementById('machine_type_select').value;
+            const downtimeType = document.getElementById('machine_downtime_type_select').value;
+
+            fetch('/delete_downtime_type', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ machine_type: machineType, downtime_type: downtimeType })
+            })
+            .then(response => {
+                if (response.ok) {
+                    $('#addTypeDowntimeModal').modal('hide');
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Тип простоя удален',
+                        showConfirmButton: false,
+                        timer: 2000
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Ошибка при удалении типа простоя',
+                        showConfirmButton: false,
+                        timer: 2000
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Ошибка при удалении типа простоя',
+                    showConfirmButton: false,
+                    timer: 2000
+                });
+            });
+        });
+
+        // обработчки кнопки закрыть модалки редактора типов простоев
+        document.getElementById('closeButton').addEventListener('click', function() {
+            $('#addTypeDowntimeModal').modal('hide');
+        });
+
+        // обработчк на esc для закрытия модалки редактора типов простоев
+        $(document).on('keydown', function(event) {
+            if (event.key === "Escape") {
+                $('#exampleModal').modal('hide');
+            }
+        });
+
+        // обработчик кнопки просмотра блока с НЕСОГЛАСОВАННЫМИ простоями: открытие и закрытие
+        function toggleDowntimeDetails(button) {
+            var descriptions = button.closest('.list-item').querySelector('.downtime-descriptions').innerHTML;
+            document.getElementById('modalBodyContent').innerHTML = descriptions;
+            var myModal = new bootstrap.Modal(document.getElementById('downtimeModal'));
+            myModal.show();
+        }
+
+        // Функция выбора чек боксов по НЕСОГЛАСОВАННЫМ простоям
+        function toggleSelectAll(checkbox, containerClass) {
+            var modalContent = document.getElementById('modalBodyContent');
+            var checkboxes = modalContent.querySelectorAll('input[type="checkbox"][name="agree"]');
+            checkboxes.forEach(function(item) {
+                item.checked = checkbox.checked;
+            });
+        }
+
+        // ОСНОВНОЙ обработчик блока с НЕСОГЛАСОВАННЫМИ простоями
+        function submitApproval(state, tableClass) {
+            var modalContent = document.getElementById('modalBodyContent');
+            var checkboxes = modalContent.querySelectorAll('input[type="checkbox"][name="agree"]');
+            var reasons = modalContent.querySelectorAll('input[type="text"][name="reason"]');
+            var selectedDowntimes = [];
+
+            checkboxes.forEach(function(checkbox) {
+                if (checkbox.checked) {
+                    var downtimeId = checkbox.dataset.downtimeId;
+                    var reason = '';
+                    reasons.forEach(function(reasonInput) {
+                        if (reasonInput.dataset.downtimeId === downtimeId) {
+                            reason = reasonInput.value;
+                        }
+                    });
+                    selectedDowntimes.push({
+                        id: downtimeId,
+                        reason: reason
+                    });
+                }
+            });
+
+            fetch('/approve_downtime', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ selectedDowntimes: selectedDowntimes, state: state })
+            })
+            .then(function(response) {
+                if (response.ok) {
+                    return response.json();
+                } else {
+                    throw new Error('Ошибка при выполнении запроса: ' + response.status);
+                }
+            })
+            .then(function(data) {
+                if (data.status === 'ok') {
+                    var myModal = bootstrap.Modal.getInstance(document.getElementById('downtimeModal'));
+                    myModal.hide();
+                    // location.reload();
+                    handleDateChange()
+                } else {
+                    console.error('Ошибка при выполнении запроса:', data.message);
+                }
+            })
+            .catch(function(error) {
+                console.error('Ошибка при выполнении запроса:', error);
+            });
+        }
+
+        // обработчик кнопки просмотра блока с СОГЛАСОВАННЫМИ простоями: открытие и закрытие
+        function toggleDowntimeApprovedDetails(button) {
+            var descriptions = button.closest('.list-item').querySelector('.downtime-approved-descriptions').innerHTML;
+            document.getElementById('modalBodyApprovedContent').innerHTML = descriptions;
+            var myModal = new bootstrap.Modal(document.getElementById('approvedDowntimeModal'));
+            myModal.show();
+        }
+
+        // Функция выбора чек боксов по СОГЛАСОВАННЫМ простоям
+        function toggleApprovedSelectAll(checkbox, containerClass) {
+            var modalContent = document.getElementById('modalBodyApprovedContent');
+            var checkboxes = modalContent.querySelectorAll('input[type="checkbox"][name="agree"]');
+            checkboxes.forEach(function(item) {
+                item.checked = checkbox.checked;
+            });
+        }
+
+        // ОСНОВНОЙ обработчик блока с СОГЛАСОВАННЫМИ простоями
+        function submitDisapproval(state, tableClass) {
+            var modalContent = document.getElementById('modalBodyApprovedContent');
+            var checkboxes = modalContent.querySelectorAll('input[type="checkbox"][name="agree"]');
+            var selectedDowntimes = [];
+
+            checkboxes.forEach(function(checkbox) {
+                if (checkbox.checked) {
+                    var downtimeId = checkbox.dataset.downtimeId;
+                    selectedDowntimes.push({
+                        id: downtimeId
+                    });
+                }
+            });
+
+            fetch('/approve_downtime', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ selectedDowntimes: selectedDowntimes, state: state })
+            })
+            .then(function(response) {
+                if (response.ok) {
+                    return response.json();
+                } else {
+                    throw new Error('Ошибка при выполнении запроса: ' + response.status);
+                }
+            })
+            .then(function(data) {
+                if (data.status === 'ok') {
+                    var myModal = bootstrap.Modal.getInstance(document.getElementById('approvedDowntimeModal'));
+                    myModal.hide();
+                    // location.reload();
+                    handleDateChange()
+                } else {
+                    console.error('Ошибка при выполнении запроса:', data.message);
+                }
+            })
+            .catch(function(error) {
+                console.error('Ошибка при выполнении запроса:', error);
+            });
+        }
+
+        // обработчик модалки для сохранения настроек простоя
+        document.getElementById('settingsButton').addEventListener('click', function() {
+            Swal.fire({
+                title: 'Настройки допустимого\nвремени простоя',
+                html: `
+                    <div style="background-color: green; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
+                        <label for="allowed_downtime" class="form-label" style="margin-right: 10px; width: 200px; text-align: right; display: inline-block; color: black;">Разрешенный простой</label>
+                        <input type="number" class="form-control" id="allowed_downtime" name="allowed_downtime" value="{{ allowed_downtime }}" style="display: inline-block; width: 100px; margin-right: 5px;">
+                        <span style="color: black;">мин</span>
+                    </div>
+                    <div style="background-color: orange; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
+                        <label for="downtime1" class="form-label" style="margin-right: 10px; width: 200px; text-align: right; display: inline-block; color: black;">Оранжевая зона с:</label>
+                        <input type="number" class="form-control" id="downtime1" name="downtime1" value="{{ settings_downtime[0] }}" style="display: inline-block; width: 100px; margin-right: 5px;">
+                        <span style="color: black;">мин</span>
+                    </div>
+                    <div style="background-color: red; padding: 10px; border-radius: 5px;">
+                        <label for="downtime2" class="form-label" style="margin-right: 10px; width: 200px; text-align: right; display: inline-block; color: black;">Красная зона с:</label>
+                        <input type="number" class="form-control" id="downtime2" name="downtime2" value="{{ settings_downtime[1] }}" style="display: inline-block; width: 100px; margin-right: 5px;">
+                        <span style="color: black;">мин</span>
+                    </div>
+                `,
+                showCloseButton: true,
+                showConfirmButton: true,
+                confirmButtonText: 'Сохранить',
+                confirmButtonColor: '#28a745',
+                showCancelButton: true,
+                cancelButtonText: 'Отмена',
+                cancelButtonColor: '#6c757d',
+                customClass: {
+                    container: 'swal2-center'
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    const downtime1 = document.getElementById('downtime1').value;
+                    const downtime2 = document.getElementById('downtime2').value;
+                    const allowed_downtime = document.getElementById('allowed_downtime').value;
+
+                    fetch('/save_settings_downtime', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ downtime1: downtime1, downtime2: downtime2, allowed_downtime: allowed_downtime })
+                    })
+                    .then(response => {
+                        if (response.ok) {
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Настройки сохранены',
+                                showConfirmButton: false,
+                                timer: 2000
+                            }).then(() => {
+                                document.getElementById('settingsModal').classList.remove('show');
+                                document.getElementById('settingsModal').style.display = 'none';
+                                document.body.classList.remove('modal-open');
+                                document.querySelector('.modal-backdrop').remove();
+                            });
+                            setTimeout(handleDateChange, 2000);
+                        } else {
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Ошибка при сохранении настроек',
+                                showConfirmButton: false,
+                                timer: 2000
+                            });
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Ошибка:', error);
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Ошибка при сохранении настроек',
+                            showConfirmButton: false,
+                            timer: 2000
+                        });
+                    });
+                }
+            });
+        });
+
+        // обработчики времени суммарной РАБОТЫ в человекопонятные _ч и _мин
+        function updateTotalWorkTime() {
+            const items = document.querySelectorAll('.total-worktime');
+            items.forEach(item => {
+                const totalWorkTime = parseInt(item.dataset.totalWorkTime);
+                if (!isNaN(totalWorkTime)) {
+                    item.textContent = DeltaTimeSum(totalWorkTime);
+                } else {
+                    item.textContent = "Неверное значение времени";
+                }
+            });
+        }
+
+        // обработчики времени суммарного ПРОСТОЙ в человекопонятные _ч и _мин
+        function updateTotalDownTime() {
+            const items = document.querySelectorAll('.list-group-item-downtime');
+            items.forEach(item => {
+                const totalDownTimeElement = item.querySelector('.total-downtime');
+                const totalDownTime = parseInt(totalDownTimeElement.dataset.totalDownTime);
+                if (!isNaN(totalDownTime)) {
+                    totalDownTimeElement.textContent = DeltaTimeSum(totalDownTime);
+                } else {
+                    totalDownTimeElement.textContent = "Неверное значение времени";
+                }
+            });
+        }
+
+        // обработчики времени в таблице простоев в человекопонятные _ч и _мин 
+        function updateDowntimeDescriptions() {
+            const items = document.querySelectorAll('.downtime-descriptions, .downtime-approved-descriptions');
+            
+            items.forEach(item => {
+                // Обработка элементов с классом party-downtime
+                const downtimeElements = item.querySelectorAll('.party-downtime');
+                downtimeElements.forEach(downtimeElement => {
+                    const totalDownTime = parseInt(downtimeElement.dataset.partyDownTime);
+                    if (!isNaN(totalDownTime)) {
+                        downtimeElement.textContent = DeltaTimeSum(totalDownTime);
+                    } else {
+                        downtimeElement.textContent = "Неверное значение времени";
+                    }
+                });
+
+                // Обработка элементов с классом party-downtime-approved
+                const approvedDowntimeElements = item.querySelectorAll('.party-downtime-approved');
+                approvedDowntimeElements.forEach(downtimeElement => {
+                    const totalDownTime = parseInt(downtimeElement.dataset.partyDownTime);
+                    if (!isNaN(totalDownTime)) {
+                        downtimeElement.textContent = DeltaTimeSum(totalDownTime);
+                    } else {
+                        downtimeElement.textContent = "Неверное значение времени";
+                    }
+                });
+            });
+        };
+
+        // Функция для получения текущей даты в формате yyyy-mm-dd
+        function getCurrentDate() {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+
+        // Проверка, выбрана ли текущая дата
+        function isTodaySelected() {
+            const selectedDate = document.getElementById('dateInput').value;
+            const currentDate = getCurrentDate();
+            return selectedDate === currentDate;
+        }
+
+        let dashboardInterval = null;  // Переменная для хранения ID интервала
+
+        // Функция для обновления данных
+        function updateDashboardForCurrentDate() {
+            if (isTodaySelected()) {
+                const selectedDate = getCurrentDate();  // Используем текущую дату
+                $.ajax({
+                    url: `/dashboard_of_machines_2?date=${selectedDate}`,
+                    method: 'GET',
+                    success: function(data) {
+                        $('#new').html(data);
+                        updateDowntimeDescriptions();
+                        updateTotalDownTime();
+                        updateTotalWorkTime();
+                    },
+                    error: function(error) {
+                        console.error('Error fetching dashboard data:', error);
+                    }
+                });
+            } else {
+                // Если дата больше не текущая, остановим интервал
+                clearInterval(dashboardInterval);
+                dashboardInterval = null;
+            }
+        }
+
+        // Обработчик изменения даты в поле указания даты
+        function handleDateChange() {
+            const dateInput = document.getElementById('dateInput');
+            const selectedDate = dateInput.value;
+            localStorage.setItem('selectedDate', selectedDate);
+
+            $.ajax({
+                url: `/dashboard_of_machines_2?date=${selectedDate}`,
+                method: 'GET',
+                success: function(data) {
+                    $('#new').html(data);
+                    updateDowntimeDescriptions();
+                    updateTotalDownTime();
+                    updateTotalWorkTime();
+                    const savedDate = localStorage.getItem('selectedDate');
+                    document.getElementById('dateInput').value = savedDate;
+
+                    // Если выбрана текущая дата, запускаем обновление раз в минуту
+                    if (isTodaySelected()) {
+                        if (dashboardInterval === null) {  // Проверяем, не запущен ли уже интервал
+                            dashboardInterval = setInterval(updateDashboardForCurrentDate, 60000);  // Обновляем каждую минуту
+                        }
+                    } else if (dashboardInterval !== null) {
+                        // Если дата уже не текущая, останавливаем интервал
+                        clearInterval(dashboardInterval);
+                        dashboardInterval = null;
+                    }
+                },
+                error: function(error) {
+                    console.error('Error fetching dashboard data:', error);
+                }
+            });
+        }
+
+        // Привязываем вызов функции к событию DOMContentLoaded
+        document.addEventListener('DOMContentLoaded', function () {
+            setCurrentDate();
+            updateDowntimeDescriptions();
+            updateTotalDownTime();
+            updateTotalWorkTime();
+            $(document).on('change', '#dateInput', handleDateChange);
+
+            // Запускаем проверку обновления для текущей даты сразу при загрузке страницы
+            if (isTodaySelected()) {
+                dashboardInterval = setInterval(updateDashboardForCurrentDate,60000);  // Обновляем каждую минуту
+            }
+        });
+
+
+        // Переводим секунды в человекопонятные _ч _мин
+        function DeltaTimeSum(delta) {  
+            let hours = Math.floor(delta / 3600);
+            delta -= hours * 3600;
+            let minutes = Math.floor(delta / 60) % 60;
+            let dateStr = '';
+            if (hours > 0) {
+                    dateStr += `${hours} ч. `;
+                }
+                dateStr += `${minutes} мин. `;
+            return dateStr.trim();
+        }
+
+        // Функция для получения текущей даты
+        function setCurrentDate() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0'); // Добавляем ведущий ноль
+            const day = String(today.getDate()).padStart(2, '0'); // Добавляем ведущий ноль
+            const currentDate = `${year}-${month}-${day}`;
+            document.getElementById('dateInput').value = currentDate;
+        }
+        
+        // Конец зоны отрисовки дашборда работы станков..................................................................
+        // Конец зоны отрисовки дашборда работы станков..................................................................
+        // Конец зоны отрисовки дашборда работы станков..................................................................
+    </script>
+{% endblock %}
